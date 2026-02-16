@@ -1,7 +1,4 @@
 # Habit Tracker Backend
-
-Курсовой проект: бэкенд SPA-приложения для отслеживания привычек.
-
 ## Стек
 
 - Python 3.10+
@@ -14,106 +11,116 @@
 - drf-spectacular (Swagger / OpenAPI)
 - django-cors-headers
 
-## Требования
+---
 
-См. `requirements.txt`:
+## Быстрый старт через Docker Compose
+
+### 1) Подготовьте переменные окружения
+
+В корне проекта есть шаблон: `.env.example`.
+
+Скопируйте его в `.env` и при необходимости поменяйте значения:
 
 ```bash
-pip install -r requirements.txt
-Настройка
-Склонировать репозиторий:
+cp .env.example .env
+```
 
-bash
-Копировать код
-git clone https://github.com/USERNAME/habit-tracker-backend.git
-cd habit-tracker-backend
-Создать и активировать виртуальное окружение:
+Минимально важно заменить:
+- `SECRET_KEY`
+- `TELEGRAM_BOT_TOKEN` (если используете Telegram-уведомления)
 
-bash
-Копировать код
-python -m venv venv
-source venv/bin/activate    # Windows: venv\Scripts\activate
-Установить зависимости:
+> В шаблоне уже указаны правильные хосты для docker-compose: `DB_HOST=db`, `redis://redis:6379/...`.
 
-bash
-Копировать код
-pip install -r requirements.txt
-Создать файл .env:
+### 2) Запуск одной командой
 
-env
-Копировать код
-DEBUG=True
-SECRET_KEY=your_secret_key
-ALLOWED_HOSTS=localhost,127.0.0.1
+```bash
+docker compose up --build -d
+```
 
-DB_NAME=habits_db
-DB_USER=habits_user
-DB_PASSWORD=strong_password
-DB_HOST=127.0.0.1
-DB_PORT=5432
+### 3) Проверка работоспособности сервисов
 
-TELEGRAM_BOT_TOKEN=123456:ABCDEF
-TELEGRAM_API_URL=https://api.telegram.org
+**Backend (Django)**
+- Swagger: http://localhost:8000/api/docs/
+- OpenAPI schema: http://localhost:8000/api/schema/
 
-REDIS_URL=redis://127.0.0.1:6379/0
-CELERY_BROKER_URL=redis://127.0.0.1:6379/1
-CELERY_RESULT_BACKEND=redis://127.0.0.1:6379/2
-Применить миграции:
+Проверка по логам:
+```bash
+docker compose logs -f backend
+```
 
-bash
-Копировать код
-python manage.py migrate
-Создать суперпользователя:
+**PostgreSQL**
+```bash
+docker compose exec db psql -U "$DB_USER" -d "$DB_NAME" -c "SELECT 1;"
+```
 
-bash
-Копировать код
-python manage.py createsuperuser
-Запустить сервер разработки:
+**Redis**
+```bash
+docker compose exec redis redis-cli ping
+# ожидается: PONG
+```
 
-bash
-Копировать код
-python manage.py runserver
-Запустить Redis, Celery и Celery Beat:
+**Celery worker**
+```bash
+docker compose logs -f celery
+```
 
-bash
-Копировать код
-redis-server
-celery -A config worker -l INFO
-celery -A config beat -l INFO
-Эндпоинты
-POST /api/users/register/ — регистрация
+**Celery Beat (планировщик)**
+```bash
+docker compose logs -f celery-beat
+```
 
-POST /api/users/token/ — получение JWT (логин)
+### Остановка
 
-POST /api/users/token/refresh/ — обновление JWT
+```bash
+docker compose down
+```
 
-GET /api/habits/ — список привычек текущего пользователя (с пагинацией)
+Если хотите удалить том с базой данных:
+```bash
+docker compose down -v
+```
 
-POST /api/habits/ — создание привычки
+---
 
-GET /api/habits/{id}/ — просмотр привычки
+## Локальный запуск без Docker (опционально)
 
-PUT/PATCH /api/habits/{id}/ — редактирование привычки
+См. зависимости в `requirements.txt`.
 
-DELETE /api/habits/{id}/ — удаление привычки
+1. Создать и активировать виртуальное окружение
+2. Установить зависимости `pip install -r requirements.txt`
+3. Создать `.env` (можно на основе `.env.example`)
+4. Применить миграции `python manage.py migrate`
+5. Запустить сервер `python manage.py runserver`
 
-GET /api/habits/public/ — список публичных привычек
+---
 
-POST /api/telegram/save-chat-id/ — сохранить chat_id Telegram для текущего пользователя
+## Основные эндпоинты
 
-GET /api/docs/ — Swagger UI
+- `POST /api/users/register/` — регистрация
+- `POST /api/users/login/` — получение JWT
+- `GET /api/habits/` — список привычек пользователя
+- `POST /api/habits/` — создание привычки
+- `GET /api/habits/{id}/` — просмотр привычки
+- `PUT/PATCH /api/habits/{id}/` — редактирование привычки
+- `DELETE /api/habits/{id}/` — удаление привычки
+- `GET /api/habits/public/` — список публичных привычек
+- `POST /api/telegram/save-chat-id/` — сохранить chat_id Telegram для текущего пользователя
+- `GET /api/docs/` — Swagger UI
+- `GET /api/schema/` — OpenAPI схема
 
-GET /api/schema/ — OpenAPI схема
+---
 
-Тесты и качество кода
+## Тесты и качество кода
+
 Запуск тестов с покрытием:
 
-bash
-Копировать код
+```bash
 coverage run -m pytest
 coverage report
+```
+
 Запуск Flake8:
 
-bash
-Копировать код
+```bash
 flake8
+```
