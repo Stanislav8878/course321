@@ -6,6 +6,7 @@ router = DefaultRouter()
 router.register('habits', HabitViewSet, basename='habit')
 
 urlpatterns = [
-    path('', include(router.urls)),
+    # ВАЖНО: сначала public, потом router, иначе router перехватывает "public" как pk
     path('habits/public/', PublicHabitsListView.as_view(), name='public-habits'),
+    path('', include(router.urls)),
 ]
