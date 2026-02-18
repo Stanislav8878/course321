@@ -69,8 +69,8 @@ jobs:
     needs: tests
     runs-on: ubuntu-latest
 
-    # деплой только в develop
-    if: github.ref == 'refs/heads/develop'
+    # деплой только при push в develop
+    if: github.ref == 'refs/heads/develop' && github.event_name == 'push'
 
     permissions:
       contents: read
@@ -79,6 +79,9 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+
+      - name: Prepare image name (lowercase for GHCR)
+        run: echo "IMAGE=ghcr.io/${GITHUB_REPOSITORY,,}" >> $GITHUB_ENV
 
       - name: Log in to GHCR
         uses: docker/login-action@v3
@@ -93,8 +96,8 @@ jobs:
           context: .
           push: true
           tags: |
-            ghcr.io/${{ github.repository }}:latest
-            ghcr.io/${{ github.repository }}:${{ github.sha }}
+            ${{ env.IMAGE }}:latest
+            ${{ env.IMAGE }}:${{ github.sha }}
 
       - name: Upload production compose + nginx config to server
         uses: appleboy/scp-action@v0.1.7
