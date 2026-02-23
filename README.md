@@ -281,4 +281,163 @@ GitHub → вкладка **Actions** → нужный запуск → смот
 
 3) **Неверный путь на сервере**
 - Проверьте `SERVER_PATH` и что там есть `docker-compose.prod.yml` и `.env`.
+---
 
+## Адрес развернутого приложения
+
+- API (nginx → gunicorn): **http://89.169.187.83/**
+- Swagger (через nginx): **http://89.169.187.83/api/docs/**
+
+> Если у вас настроен домен/HTTPS — укажите здесь домен вместо IP.
+
+---
+
+## Деплой на сервер через Docker Compose (production)
+
+В репозитории есть production-конфигурация: `docker-compose.prod.yml` (Django+Gunicorn, PostgreSQL, Redis, Celery, Celery Beat, nginx).
+
+### 1) Подготовка сервера (Ubuntu 22.04/24.04)
+
+1. Обновите систему и установите Docker + Compose plugin:
+
+```bash
+sudo apt update
+sudo apt -y install ca-certificates curl gnupg
+sudo install -m 0755 -d /etc/apt/keyrings
+
+curl -fsSL https://download.docker.com/linux/ubuntu/gpg | sudo gpg --dearmor -o /etc/apt/keyrings/docker.gpg
+sudo chmod a+r /etc/apt/keyrings/docker.gpg
+
+echo   "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/ubuntu   $(. /etc/os-release && echo "$VERSION_CODENAME") stable" |   sudo tee /etc/apt/sources.list.d/docker.list > /dev/null
+
+sudo apt update
+sudo apt -y install docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
+sudo usermod -aG docker $USER
+newgrp docker
+```
+
+2. Откройте порт 80 (если включён ufw):
+
+```bash
+sudo ufw allow 80/tcp
+sudo ufw enable
+sudo ufw status
+```
+
+3. (Рекомендуется) Создайте директорию проекта на сервере:
+
+```bash
+sudo mkdir -p /opt/habit-tracker
+sudo chown -R $USER:$USER /opt/habit-tracker
+cd /opt/habit-tracker
+```
+
+### 2) Файлы на сервере
+
+На сервере должны быть:
+- `docker-compose.prod.yml` (можно копировать из репозитория)
+- `.env` (секреты и настройки окружения)
+- `deploy/nginx.conf` (конфиг nginx из репозитория)
+
+Минимальный пример `.env`:
+```env
+DEBUG=0
+SECRET_KEY=change-me
+
+DB_NAME=habits
+DB_USER=habits
+DB_PASSWORD=habits
+DB_HOST=db
+DB_PORT=5432
+
+REDIS_URL=redis://redis:6379/0
+
+ALLOWED_HOSTS=89.169.187.83,localhost,127.0.0.1
+CSRF_TRUSTED_ORIGINS=http://89.169.187.83
+
+# образ приложения, который будет собран и опубликован CI
+APP_IMAGE=ghcr.io/<GITHUB_USERNAME>/<REPO_NAME>:latest
+```
+
+> Файл `.env` **не коммитим**. В репозитории хранится только `.env.example`.
+
+### 3) Первый запуск на сервере (вручную)
+
+```bash
+cd /opt/habit-tracker
+docker compose -f docker-compose.prod.yml --env-file .env up -d
+docker compose -f docker-compose.prod.yml ps
+```
+
+Проверка логов:
+```bash
+docker compose -f docker-compose.prod.yml logs -f backend
+```
+
+Остановка/перезапуск:
+```bash
+docker compose -f docker-compose.prod.yml down
+docker compose -f docker-compose.prod.yml up -d
+```
+
+---
+
+## CI/CD (GitHub Actions)
+
+CI/CD настроен так, чтобы при пуше/мерже в `develop`:
+
+1) запустить линтер и тесты  
+2) проверить сборку Docker-образа  
+3) собрать и опубликовать Docker-образ в registry (например, GHCR)  
+4) по SSH подключиться к серверу и выполнить обновление через Docker Compose
+
+### Секреты GitHub (Settings → Secrets and variables → Actions)
+
+Добавьте следующие Secrets:
+
+- `SSH_HOST` — IP/домен сервера (например `89.169.187.83`)
+- `SSH_USER` — пользователь для подключения (например `ronin909`)
+- `SSH_PRIVATE_KEY` — приватный ключ (OpenSSH), соответствующий ключу в `~/.ssh/authorized_keys` на сервере
+- `ENV_FILE` — содержимое `.env` для production (одним текстом)
+- `GHCR_PAT` — токен GitHub с правами `write:packages` (если пушите образ в GHCR)
+
+> Можно не хранить `.env` как файл на сервере вручную — workflow может писать его из `ENV_FILE`.
+
+### Что делает деплой (логика)
+
+На сервере деплой обычно сводится к командам:
+
+```bash
+cd /opt/habit-tracker
+
+# обновить compose/nginx.conf при необходимости (git pull или scp)
+# авторизация в registry (если нужно)
+docker compose -f docker-compose.prod.yml pull
+docker compose -f docker-compose.prod.yml up -d --remove-orphans
+docker image prune -f
+```
+
+---
+
+## Примечания по nginx / статики
+
+- В production `backend` запускается через gunicorn и **не** публикует порт наружу (используется `expose`).
+- `nginx` проксирует запросы на `backend:8000` и раздаёт статику из volume `static_data`.
+- Сбор статики выполняется автоматически при старте `backend` благодаря переменной `RUN_MIGRATIONS=1` (см. `docker/entrypoint.sh`).
+
+---
+
+## Полезные команды
+
+Миграции/создание суперпользователя в Docker:
+
+```bash
+docker compose exec backend python manage.py createsuperuser
+docker compose exec backend python manage.py showmigrations
+```
+
+Подключиться к Postgres:
+
+```bash
+docker compose exec db psql -U "$DB_USER" -d "$DB_NAME"
+```

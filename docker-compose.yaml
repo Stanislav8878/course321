@@ -3,8 +3,7 @@ services:
     image: postgres:16-alpine
     container_name: habits_db
     restart: unless-stopped
-    env_file:
-      - .env
+    env_file: [.env]
     environment:
       POSTGRES_DB: ${DB_NAME}
       POSTGRES_USER: ${DB_USER}
@@ -37,16 +36,15 @@ services:
       dockerfile: Dockerfile
     container_name: habits_backend
     restart: unless-stopped
-    env_file:
-      - .env
-    command: >
-      sh -c "python manage.py migrate &&
-             python manage.py collectstatic --noinput &&
-             python manage.py runserver 0.0.0.0:8000"
+    env_file: [.env]
+    environment:
+      RUN_MIGRATIONS: "1"
+    command: gunicorn config.wsgi:application --bind 0.0.0.0:8000 --workers 3 --reload
     volumes:
       - .:/app
-    ports:
-      - "8000:8000"
+      - static_data:/app/static
+    expose:
+      - "8000"
     depends_on:
       db:
         condition: service_healthy
@@ -59,9 +57,7 @@ services:
       dockerfile: Dockerfile
     container_name: habits_celery
     restart: unless-stopped
-    env_file:
-      - .env
-    user: "1000:1000"
+    env_file: [.env]
     command: celery -A config worker -l info
     volumes:
       - .:/app
@@ -79,9 +75,7 @@ services:
       dockerfile: Dockerfile
     container_name: habits_celery_beat
     restart: unless-stopped
-    env_file:
-      - .env
-    user: "1000:1000"
+    env_file: [.env]
     command: celery -A config beat -l info
     volumes:
       - .:/app
@@ -93,5 +87,18 @@ services:
       db:
         condition: service_healthy
 
+  nginx:
+    image: nginx:1.27-alpine
+    container_name: habits_nginx
+    restart: unless-stopped
+    depends_on:
+      - backend
+    ports:
+      - "80:80"
+    volumes:
+      - static_data:/static:ro
+      - ./deploy/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+
 volumes:
   postgres_data:
+  static_data:

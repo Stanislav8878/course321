@@ -8,18 +8,10 @@ WORKDIR /app
 RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
     libpq-dev \
-    curl \
   && rm -rf /var/lib/apt/lists/*
 
 COPY requirements.txt /app/requirements.txt
-
-RUN python -c "from pathlib import Path; p=Path('requirements.txt'); b=p.read_bytes(); \
-import sys; \
-is_utf16 = b[:2] in (b'\xff\xfe', b'\xfe\xff'); \
-txt = b.decode('utf-16') if is_utf16 else b.decode('utf-8', errors='ignore'); \
-Path('requirements.utf8.txt').write_text(txt, encoding='utf-8');" \
- && pip install --upgrade pip \
- && pip install -r requirements.utf8.txt
+RUN pip install --upgrade pip && pip install -r requirements.txt
 
 COPY . /app
 

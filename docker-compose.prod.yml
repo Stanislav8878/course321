@@ -2,8 +2,7 @@ services:
   db:
     image: postgres:16-alpine
     restart: unless-stopped
-    env_file:
-      - .env
+    env_file: [.env]
     environment:
       POSTGRES_DB: ${DB_NAME}
       POSTGRES_USER: ${DB_USER}
@@ -28,8 +27,9 @@ services:
   backend:
     image: ${APP_IMAGE}
     restart: unless-stopped
-    env_file:
-      - .env
+    env_file: [.env]
+    environment:
+      RUN_MIGRATIONS: "1"
     depends_on:
       db:
         condition: service_healthy
@@ -44,8 +44,7 @@ services:
   celery:
     image: ${APP_IMAGE}
     restart: unless-stopped
-    env_file:
-      - .env
+    env_file: [.env]
     depends_on:
       backend:
         condition: service_started
@@ -58,8 +57,7 @@ services:
   celery-beat:
     image: ${APP_IMAGE}
     restart: unless-stopped
-    env_file:
-      - .env
+    env_file: [.env]
     depends_on:
       celery:
         condition: service_started
