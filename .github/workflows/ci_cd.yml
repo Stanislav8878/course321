@@ -3,11 +3,11 @@ name: CI/CD
 on:
   push:
     branches: [ "develop" ]
-  pull_request:
-    branches: [ "develop" ]
+  workflow_dispatch:
 
-env:
-  IMAGE_NAME: ghcr.io/${{ github.repository_owner }}/course321
+permissions:
+  contents: read
+  packages: write
 
 jobs:
   test:
@@ -15,7 +15,7 @@ jobs:
 
     services:
       postgres:
-        image: postgres:15-alpine
+        image: postgres:16-alpine
         env:
           POSTGRES_DB: habits_db
           POSTGRES_USER: habits_user
@@ -24,74 +24,71 @@ jobs:
           - 5432:5432
         options: >-
           --health-cmd="pg_isready -U habits_user -d habits_db"
-          --health-interval=5s
+          --health-interval=10s
           --health-timeout=5s
-          --health-retries=10
+          --health-retries=5
 
-      redis:
-        image: redis:7-alpine
-        ports:
-          - 6379:6379
+    env:
+      # Django
+      DEBUG: "False"
+      SECRET_KEY: "ci-secret-key"
+      ALLOWED_HOSTS: "localhost,127.0.0.1"
+
+      # DB (pytest должен работать через Postgres service)
+      DB_NAME: "habits_db"
+      DB_USER: "habits_user"
+      DB_PASSWORD: "strong_password"
+      DB_HOST: "127.0.0.1"
+      DB_PORT: "5432"
+
+      # Redis (в тестах обычно не нужен; если нужен — добавь service redis)
+      REDIS_URL: "redis://localhost:6379/0"
+      CELERY_BROKER_URL: "redis://localhost:6379/1"
+      CELERY_RESULT_BACKEND: "redis://localhost:6379/2"
+
+      # Telegram (заглушки)
+      TELEGRAM_BOT_TOKEN: "123:TEST"
+      TELEGRAM_API_URL: "https://api.telegram.org"
 
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout
+        uses: actions/checkout@v4
 
-      - uses: actions/setup-python@v5
+      - name: Set up Python
+        uses: actions/setup-python@v5
         with:
           python-version: "3.12"
 
-      - name: Install deps
+      - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
-          pip install flake8 pytest pytest-django
 
-      - name: Lint
+      - name: Lint (flake8)
         run: flake8 .
 
       - name: Django check
-        env:
-          SECRET_KEY: test
-          DEBUG: "0"
-          DB_NAME: habits_db
-          DB_USER: habits_user
-          DB_PASSWORD: strong_password
-          DB_HOST: 127.0.0.1
-          DB_PORT: "5432"
-          REDIS_URL: redis://127.0.0.1:6379/0
-          CELERY_BROKER_URL: redis://127.0.0.1:6379/1
-          CELERY_RESULT_BACKEND: redis://127.0.0.1:6379/2
         run: python manage.py check
 
-      - name: Pytest
-        env:
-          SECRET_KEY: test
-          DEBUG: "0"
-          DB_NAME: habits_db
-          DB_USER: habits_user
-          DB_PASSWORD: strong_password
-          DB_HOST: 127.0.0.1
-          DB_PORT: "5432"
-          REDIS_URL: redis://127.0.0.1:6379/0
-          CELERY_BROKER_URL: redis://127.0.0.1:6379/1
-          CELERY_RESULT_BACKEND: redis://127.0.0.1:6379/2
+      - name: Run tests
         run: pytest -q
 
   build_and_push:
     runs-on: ubuntu-latest
     needs: test
-    if: github.ref == 'refs/heads/develop'
 
-    permissions:
-      packages: write
-      contents: read
+    env:
+      IMAGE_NAME: ghcr.io/${{ secrets.GHCR_USERNAME }}/course321
 
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout
+        uses: actions/checkout@v4
 
-      - uses: docker/setup-buildx-action@v3
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
 
-      - uses: docker/login-action@v3
+      - name: Login to GHCR
+        uses: docker/login-action@v3
         with:
           registry: ghcr.io
           username: ${{ secrets.GHCR_USERNAME }}
@@ -101,41 +98,41 @@ jobs:
         uses: docker/build-push-action@v6
         with:
           context: .
+          file: Dockerfile
           push: true
           tags: |
             ${{ env.IMAGE_NAME }}:latest
-            ${{ env.IMAGE_NAME }}:${{ github.sha }}
 
   deploy:
     runs-on: ubuntu-latest
     needs: build_and_push
-    if: github.ref == 'refs/heads/develop'
 
     steps:
       - name: Deploy via SSH
         uses: appleboy/ssh-action@v1.2.0
+        env:
+          APP_DIR: ${{ secrets.APP_DIR }}
+          ENV_FILE: ${{ secrets.ENV_FILE }}
+          GHCR_USERNAME: ${{ secrets.GHCR_USERNAME }}
+          GHCR_PAT: ${{ secrets.GHCR_PAT }}
         with:
           host: ${{ secrets.SSH_HOST }}
           username: ${{ secrets.SSH_USER }}
           key: ${{ secrets.SSH_PRIVATE_KEY }}
+          envs: APP_DIR,ENV_FILE,GHCR_USERNAME,GHCR_PAT
           script: |
             set -e
 
-            APP_DIR="${{ secrets.APP_DIR }}"
             mkdir -p "$APP_DIR"
             cd "$APP_DIR"
 
-            if [ ! -d ".git" ]; then
-              git clone https://github.com/${{ github.repository }}.git .
-            else
-              git pull
-            fi
+            # записываем .env из секрета
+            echo "$ENV_FILE" > .env
 
-            echo "${{ secrets.ENV_FILE }}" > .env
+            # логин в GHCR
+            docker login ghcr.io -u "$GHCR_USERNAME" -p "$GHCR_PAT"
 
-            echo "${{ secrets.GHCR_PAT }}" | docker login ghcr.io -u "${{ secrets.GHCR_USERNAME }}" --password-stdin
-
-            # подтянуть образы и поднять
+            # подтягиваем и поднимаем
             docker compose -f docker-compose.prod.yml --env-file .env pull
             docker compose -f docker-compose.prod.yml --env-file .env up -d --remove-orphans
 
