@@ -10,7 +10,6 @@ from habits.serializers import HabitSerializer
 class HabitViewSet(viewsets.ModelViewSet):
     """
     CRUD привычек текущего пользователя.
-    Важно: пагинация должна работать через REST_FRAMEWORK в settings.py.
     """
     serializer_class = HabitSerializer
     authentication_classes = (JWTAuthentication,)

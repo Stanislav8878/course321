@@ -1,14 +1,24 @@
 from rest_framework.permissions import BasePermission, SAFE_METHODS
 
 
+class IsOwner(BasePermission):
+    """
+    Разрешает доступ только владельцу объекта.
+    Для list/create проверяем только аутентификацию во view.
+    """
+    def has_object_permission(self, request, view, obj):
+        return getattr(obj, "user", None) == request.user
+
+
 class IsOwnerOrReadOnlyForPublic(BasePermission):
     """
-    Пользователь видит свои привычки (CRUD),
-    а также публичные (только список/чтение).
+    Если объект публичный — можно читать всем.
+    Если не публичный — только владельцу.
+    Запись/изменение — только владельцу.
     """
-
     def has_object_permission(self, request, view, obj):
         if request.method in SAFE_METHODS:
-            if obj.is_public:
+            if getattr(obj, "is_public", False):
                 return True
-        return obj.user == request.user
+            return getattr(obj, "user", None) == request.user
+        return getattr(obj, "user", None) == request.user
