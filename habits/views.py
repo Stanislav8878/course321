@@ -28,4 +28,3 @@ class PublicHabitsListView(ListAPIView):
 
     def get_queryset(self):
         return Habit.objects.filter(is_public=True).order_by("-id")
-
