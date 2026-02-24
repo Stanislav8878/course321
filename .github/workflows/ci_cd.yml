@@ -2,7 +2,7 @@ name: CI/CD
 
 on:
   push:
-    branches: [ "develop" ]
+    branches: ["develop"]
   workflow_dispatch:
 
 permissions:
@@ -28,25 +28,31 @@ jobs:
           --health-timeout=5s
           --health-retries=5
 
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd="redis-cli ping"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=5
+
     env:
-      # Django
       DEBUG: "False"
       SECRET_KEY: "ci-secret-key"
       ALLOWED_HOSTS: "localhost,127.0.0.1"
+      CSRF_TRUSTED_ORIGINS: "http://localhost,http://127.0.0.1"
 
-      # DB (pytest должен работать через Postgres service)
       DB_NAME: "habits_db"
       DB_USER: "habits_user"
       DB_PASSWORD: "strong_password"
       DB_HOST: "127.0.0.1"
       DB_PORT: "5432"
 
-      # Redis (в тестах обычно не нужен; если нужен — добавь service redis)
-      REDIS_URL: "redis://localhost:6379/0"
-      CELERY_BROKER_URL: "redis://localhost:6379/1"
-      CELERY_RESULT_BACKEND: "redis://localhost:6379/2"
+      CELERY_BROKER_URL: "redis://127.0.0.1:6379/1"
+      CELERY_RESULT_BACKEND: "redis://127.0.0.1:6379/2"
 
-      # Telegram (заглушки)
       TELEGRAM_BOT_TOKEN: "123:TEST"
       TELEGRAM_API_URL: "https://api.telegram.org"
 
@@ -122,17 +128,13 @@ jobs:
           envs: APP_DIR,ENV_FILE,GHCR_USERNAME,GHCR_PAT
           script: |
             set -e
-
             mkdir -p "$APP_DIR"
             cd "$APP_DIR"
 
-            # записываем .env из секрета
             echo "$ENV_FILE" > .env
 
-            # логин в GHCR
             docker login ghcr.io -u "$GHCR_USERNAME" -p "$GHCR_PAT"
 
-            # подтягиваем и поднимаем
             docker compose -f docker-compose.prod.yml --env-file .env pull
             docker compose -f docker-compose.prod.yml --env-file .env up -d --remove-orphans
 

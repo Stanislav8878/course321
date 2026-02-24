@@ -39,9 +39,9 @@ services:
     env_file: [.env]
     environment:
       RUN_MIGRATIONS: "1"
-    command: gunicorn config.wsgi:application --bind 0.0.0.0:8000 --workers 3 --reload
+      COLLECT_STATIC: "1"
+    command: gunicorn config.wsgi:application --bind 0.0.0.0:8000 --workers 3
     volumes:
-      - .:/app
       - static_data:/app/static
     expose:
       - "8000"
@@ -58,9 +58,7 @@ services:
     container_name: habits_celery
     restart: unless-stopped
     env_file: [.env]
-    command: celery -A config worker -l info
-    volumes:
-      - .:/app
+    command: celery -A config worker -l info --uid=1000 --gid=1000
     depends_on:
       backend:
         condition: service_started
@@ -77,8 +75,6 @@ services:
     restart: unless-stopped
     env_file: [.env]
     command: celery -A config beat -l info
-    volumes:
-      - .:/app
     depends_on:
       celery:
         condition: service_started

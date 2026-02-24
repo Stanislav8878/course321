@@ -1,15 +1,18 @@
 #!/bin/sh
 set -e
 
-if [ "$1" = "celery" ]; then
-  exec celery -A config worker -l info
+if [ $# -eq 0 ]; then
+  set -- gunicorn config.wsgi:application --bind 0.0.0.0:8000 --workers 3
 fi
 
-if [ "$1" = "celery-beat" ]; then
-  exec celery -A config beat -l info
+if [ "${RUN_MIGRATIONS}" = "1" ]; then
+  echo "Running migrations..."
+  python manage.py migrate --noinput
 fi
 
-python manage.py migrate --noinput
-python manage.py collectstatic --noinput
+if [ "${COLLECT_STATIC}" = "1" ]; then
+  echo "Collecting static..."
+  python manage.py collectstatic --noinput
+fi
 
-exec gunicorn config.wsgi:application --bind 0.0.0.0:8000
+exec "$@"
