@@ -83,8 +83,13 @@ jobs:
     runs-on: ubuntu-latest
     needs: test
 
+    # Дублируем permissions на уровне job — чтобы точно были права на packages
+    permissions:
+      contents: read
+      packages: write
+
     env:
-      IMAGE_NAME: ghcr.io/${{ secrets.GHCR_USERNAME }}/course321
+      IMAGE_NAME: ghcr.io/${{ github.repository_owner }}/course321
 
     steps:
       - name: Checkout
@@ -93,12 +98,12 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
-      - name: Login to GHCR
+      - name: Login to GHCR (GITHUB_TOKEN)
         uses: docker/login-action@v3
         with:
           registry: ghcr.io
-          username: ${{ secrets.GHCR_USERNAME }}
-          password: ${{ secrets.GHCR_PAT }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Build & Push backend image
         uses: docker/build-push-action@v6
