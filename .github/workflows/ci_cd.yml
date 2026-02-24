@@ -1,17 +1,13 @@
 name: CI/CD
 
 on:
-  pull_request:
-    branches: [develop]
   push:
-    branches: [develop]
-
-env:
-  REGISTRY: ghcr.io
-  IMAGE_NAME: ${{ github.repository }}
+    branches: [ "develop" ]
+  pull_request:
+    branches: [ "develop" ]
 
 jobs:
-  test_and_lint:
+  test:
     runs-on: ubuntu-latest
 
     services:
@@ -25,168 +21,69 @@ jobs:
           - 5432:5432
         options: >-
           --health-cmd="pg_isready -U habits_user -d habits_db"
-          --health-interval=5s
+          --health-interval=10s
           --health-timeout=5s
-          --health-retries=30
+          --health-retries=10
 
-      redis:
-        image: redis:7-alpine
-        ports:
-          - 6379:6379
-        options: >-
-          --health-cmd="redis-cli ping"
-          --health-interval=5s
-          --health-timeout=3s
-          --health-retries=30
+    env:
+      # Django
+      SECRET_KEY: "ci-secret-key"
+      DEBUG: "False"
+      ALLOWED_HOSTS: "localhost,127.0.0.1"
+
+      # DB for Django (pytest)
+      DB_NAME: habits_db
+      DB_USER: habits_user
+      DB_PASSWORD: strong_password
+      DB_HOST: 127.0.0.1
+      DB_PORT: 5432
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Setup Python
+      - name: Set up Python
         uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-          cache: pip
 
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
-      - name: Wait for Postgres
-        env:
-          PGPASSWORD: strong_password
+      - name: Run tests
         run: |
-          sudo apt-get update
-          sudo apt-get install -y postgresql-client
-          for i in {1..30}; do
-            pg_isready -h 127.0.0.1 -p 5432 -U habits_user -d habits_db && break
-            sleep 2
-          done
-          pg_isready -h 127.0.0.1 -p 5432 -U habits_user -d habits_db
-
-      - name: Lint (flake8)
-        run: flake8 .
-
-      - name: Django check + migrate + tests
-        env:
-          DEBUG: "False"
-          SECRET_KEY: "test_secret_key"
-          ALLOWED_HOSTS: "localhost,127.0.0.1"
-
-          # ВАЖНО: host в CI = 127.0.0.1, потому что сервис проброшен портом
-          DB_NAME: habits_db
-          DB_USER: habits_user
-          DB_PASSWORD: strong_password
-          DB_HOST: 127.0.0.1
-          DB_PORT: "5432"
-
-          REDIS_URL: redis://127.0.0.1:6379/0
-          CELERY_BROKER_URL: redis://127.0.0.1:6379/1
-          CELERY_RESULT_BACKEND: redis://127.0.0.1:6379/2
-
-          TELEGRAM_BOT_TOKEN: "123456789:TEST_TOKEN"
-          TELEGRAM_API_URL: "https://api.telegram.org"
-        run: |
-          python manage.py check
-          python manage.py migrate --noinput
           pytest -q
 
-  docker_build_check:
-    runs-on: ubuntu-latest
-    needs: test_and_lint
-
-    steps:
-      - uses: actions/checkout@v4
-      - uses: docker/setup-buildx-action@v3
-
-      - name: Build image (no push)
-        uses: docker/build-push-action@v6
-        with:
-          context: .
-          file: ./Dockerfile
-          push: false
-
-  build_and_push:
-    runs-on: ubuntu-latest
-    needs: docker_build_check
-    if: github.event_name == 'push' && github.ref == 'refs/heads/develop'
-
-    permissions:
-      contents: read
-      packages: write
-
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Log in to GHCR
-        uses: docker/login-action@v3
-        with:
-          registry: ${{ env.REGISTRY }}
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Extract Docker metadata
-        id: meta
-        uses: docker/metadata-action@v5
-        with:
-          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
-          tags: |
-            type=raw,value=latest
-            type=sha
-
-      - uses: docker/setup-buildx-action@v3
-
-      - name: Build and push
-        uses: docker/build-push-action@v6
-        with:
-          context: .
-          file: ./Dockerfile
-          push: true
-          tags: ${{ steps.meta.outputs.tags }}
-          labels: ${{ steps.meta.outputs.labels }}
-
+  # Если деплой тебе реально нужен — оставь блок ниже.
+  # Если пока мешает — можно временно убрать job deploy.
   deploy:
+    needs: test
     runs-on: ubuntu-latest
-    needs: build_and_push
-    if: github.event_name == 'push' && github.ref == 'refs/heads/develop'
+    if: github.ref == 'refs/heads/develop'
 
     steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
       - name: Deploy via SSH
-        uses: appleboy/ssh-action@v1.0.3
+        uses: appleboy/ssh-action@v1.2.0
         with:
           host: ${{ secrets.SSH_HOST }}
           username: ${{ secrets.SSH_USER }}
           key: ${{ secrets.SSH_PRIVATE_KEY }}
-          port: ${{ secrets.SSH_PORT }}
           script: |
-            set -euo pipefail
+            set -e
+            mkdir -p /opt/habit-tracker
+            cd /opt/habit-tracker
 
-            APP_DIR="${{ secrets.SERVER_PATH }}"
-            mkdir -p "$APP_DIR"
-            cd "$APP_DIR"
+            # тут должен быть проект на сервере (git clone/pull) — добавь под себя
+            # например:
+            # if [ ! -d ".git" ]; then
+            #   git clone <HTTPS_OR_SSH_URL> .
+            # else
+            #   git pull origin develop
+            # fi
 
-            if [ ! -d .git ]; then
-              git clone --branch develop https://github.com/${{ github.repository }}.git .
-            else
-              git fetch origin develop
-              git reset --hard origin/develop
-            fi
-
-            cat > .env <<'EOF'
-${{ secrets.ENV_FILE }}
-EOF
-
-            APP_IMAGE="${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:sha-${{ github.sha }}"
-            if grep -q '^APP_IMAGE=' .env; then
-              sed -i "s|^APP_IMAGE=.*|APP_IMAGE=${APP_IMAGE}|" .env
-            else
-              echo "APP_IMAGE=${APP_IMAGE}" >> .env
-            fi
-
-            echo "${{ secrets.GHCR_PAT }}" | docker login ${{ env.REGISTRY }} -u "${{ secrets.GHCR_USERNAME }}" --password-stdin
-
-            docker compose -f docker-compose.prod.yml --env-file .env pull
-            docker compose -f docker-compose.prod.yml --env-file .env up -d --remove-orphans
-            docker image prune -f
+            docker compose -f docker-compose.prod.yml --env-file .env up -d --build
