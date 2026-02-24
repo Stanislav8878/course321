@@ -1,4 +1,4 @@
-from rest_framework import generics, viewsets
+from rest_framework import generics, viewsets, permissions
 from rest_framework.permissions import IsAuthenticated
 from rest_framework_simplejwt.authentication import JWTAuthentication
 
@@ -24,7 +24,10 @@ class HabitViewSet(viewsets.ModelViewSet):
 
 class PublicHabitsListView(generics.ListAPIView):
     """
-    Список публичных привычек.
+    Публичные привычки доступны ВСЕМ (без авторизации)
     """
     serializer_class = HabitSerializer
     queryset = Habit.objects.filter(is_public=True).order_by("-id")
+
+    # 🔥 ВОТ ЭТО КЛЮЧЕВОЕ
+    permission_classes = [permissions.AllowAny]
