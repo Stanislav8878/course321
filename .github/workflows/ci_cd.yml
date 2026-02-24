@@ -27,7 +27,7 @@ jobs:
           --health-cmd="pg_isready -U habits_user -d habits_db"
           --health-interval=5s
           --health-timeout=5s
-          --health-retries=20
+          --health-retries=30
 
       redis:
         image: redis:7-alpine
@@ -37,7 +37,7 @@ jobs:
           --health-cmd="redis-cli ping"
           --health-interval=5s
           --health-timeout=3s
-          --health-retries=20
+          --health-retries=30
 
     steps:
       - name: Checkout
@@ -54,6 +54,18 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
+      - name: Wait for Postgres
+        env:
+          PGPASSWORD: strong_password
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y postgresql-client
+          for i in {1..30}; do
+            pg_isready -h 127.0.0.1 -p 5432 -U habits_user -d habits_db && break
+            sleep 2
+          done
+          pg_isready -h 127.0.0.1 -p 5432 -U habits_user -d habits_db
+
       - name: Lint (flake8)
         run: flake8 .
 
@@ -63,19 +75,17 @@ jobs:
           SECRET_KEY: "test_secret_key"
           ALLOWED_HOSTS: "localhost,127.0.0.1"
 
-          # DB vars exactly like your .env, but host must be the service name "postgres"
+          # ВАЖНО: host в CI = 127.0.0.1, потому что сервис проброшен портом
           DB_NAME: habits_db
           DB_USER: habits_user
           DB_PASSWORD: strong_password
-          DB_HOST: postgres
+          DB_HOST: 127.0.0.1
           DB_PORT: "5432"
 
-          # Redis / Celery vars like your .env, but host must be the service name "redis"
-          REDIS_URL: redis://redis:6379/0
-          CELERY_BROKER_URL: redis://redis:6379/1
-          CELERY_RESULT_BACKEND: redis://redis:6379/2
+          REDIS_URL: redis://127.0.0.1:6379/0
+          CELERY_BROKER_URL: redis://127.0.0.1:6379/1
+          CELERY_RESULT_BACKEND: redis://127.0.0.1:6379/2
 
-          # Telegram (tests may require it)
           TELEGRAM_BOT_TOKEN: "123456789:TEST_TOKEN"
           TELEGRAM_API_URL: "https://api.telegram.org"
         run: |
