@@ -1,11 +1,15 @@
-#!/usr/bin/env sh
+#!/bin/sh
 set -e
 
-# Миграции и сбор статики делаем только для web-контейнера (backend),
-# чтобы worker/beat не гоняли migrate/collectstatic на каждом старте.
-if [ "${RUN_MIGRATIONS:-0}" = "1" ]; then
-  python manage.py migrate --noinput
-  python manage.py collectstatic --noinput
+if [ "$1" = "celery" ]; then
+  exec celery -A config worker -l info
 fi
 
-exec "$@"
+if [ "$1" = "celery-beat" ]; then
+  exec celery -A config beat -l info
+fi
+
+python manage.py migrate --noinput
+python manage.py collectstatic --noinput
+
+exec gunicorn config.wsgi:application --bind 0.0.0.0:8000
