@@ -9,7 +9,6 @@ on:
       - develop
 
 env:
-  # GHCR требует lowercase. Укажи тут свой username и repo в нижнем регистре.
   IMAGE_NAME: ghcr.io/stanislav8878/course321
 
 jobs:
@@ -25,84 +24,42 @@ jobs:
           POSTGRES_PASSWORD: postgres
         ports:
           - 5432:5432
-        options: >-
-          --health-cmd="pg_isready -U postgres"
-          --health-interval=10s
-          --health-timeout=5s
-          --health-retries=5
 
       redis:
         image: redis:7-alpine
         ports:
           - 6379:6379
-        options: >-
-          --health-cmd="redis-cli ping"
-          --health-interval=10s
-          --health-timeout=5s
-          --health-retries=5
 
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      - name: Set up Python
-        uses: actions/setup-python@v5
+      - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
 
-      - name: Install dependencies
-        run: |
+      - run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
           pip install flake8 pytest
 
-      - name: Lint (flake8)
-        run: flake8 .
+      - run: flake8 .
 
-      - name: Django checks
+      - run: python manage.py check
         env:
-          # Подстрой под свои переменные/настройки проекта
+          SECRET_KEY: test
           DEBUG: "0"
-          SECRET_KEY: "ci-secret-key"
-          ALLOWED_HOSTS: "localhost,127.0.0.1"
-          DB_ENGINE: "django.db.backends.postgresql"
-          DB_NAME: "postgres"
-          DB_USER: "postgres"
-          DB_PASSWORD: "postgres"
-          DB_HOST: "127.0.0.1"
-          DB_PORT: "5432"
-          REDIS_HOST: "127.0.0.1"
-          REDIS_PORT: "6379"
-        run: |
-          python manage.py check
 
-      - name: Tests (pytest)
-        env:
-          DEBUG: "0"
-          SECRET_KEY: "ci-secret-key"
-          ALLOWED_HOSTS: "localhost,127.0.0.1"
-          DB_ENGINE: "django.db.backends.postgresql"
-          DB_NAME: "postgres"
-          DB_USER: "postgres"
-          DB_PASSWORD: "postgres"
-          DB_HOST: "127.0.0.1"
-          DB_PORT: "5432"
-          REDIS_HOST: "127.0.0.1"
-          REDIS_PORT: "6379"
-        run: pytest -q
+      - run: pytest -q
 
   docker_build_check:
     runs-on: ubuntu-latest
     needs: test_and_lint
+
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
 
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
-
-      - name: Docker build check
-        uses: docker/build-push-action@v6
+      - uses: docker/build-push-action@v6
         with:
           context: .
           file: ./Dockerfile
@@ -111,31 +68,26 @@ jobs:
   build_and_push:
     runs-on: ubuntu-latest
     needs: docker_build_check
-    if: github.event_name == 'push' && github.ref == 'refs/heads/develop'
+    if: github.ref == 'refs/heads/develop'
 
     permissions:
-      contents: read
       packages: write
+      contents: read
 
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      - name: Login to GHCR
-        uses: docker/login-action@v3
+      - uses: docker/login-action@v3
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
+      - uses: docker/setup-buildx-action@v3
 
-      - name: Build and push
-        uses: docker/build-push-action@v6
+      - uses: docker/build-push-action@v6
         with:
           context: .
-          file: ./Dockerfile
           push: true
           tags: |
             ${{ env.IMAGE_NAME }}:latest
@@ -144,10 +96,10 @@ jobs:
   deploy:
     runs-on: ubuntu-latest
     needs: build_and_push
-    if: github.event_name == 'push' && github.ref == 'refs/heads/develop'
+    if: github.ref == 'refs/heads/develop'
 
     steps:
-      - name: Deploy to server via SSH
+      - name: Deploy
         uses: appleboy/ssh-action@v1.0.3
         with:
           host: ${{ secrets.SSH_HOST }}
@@ -156,16 +108,20 @@ jobs:
           script: |
             set -e
 
-            # где лежит compose на сервере
-            cd /opt/habit-tracker
+            mkdir -p ~/app
+            cd ~/app
 
-            # обновим .env из секрета (если используешь)
+            # если репозиторий ещё не склонирован
+            if [ ! -d ".git" ]; then
+              git clone https://github.com/stanislav8878/course321.git .
+            else
+              git pull
+            fi
+
             echo "${{ secrets.ENV_FILE }}" > .env
 
-            # залогинимся в GHCR (если образ приватный)
             echo "${{ secrets.GHCR_PAT }}" | docker login ghcr.io -u "${{ secrets.GHCR_USERNAME }}" --password-stdin
 
-            # прокинем IMAGE в docker compose (если у тебя в compose используется ${IMAGE})
             export IMAGE="${{ env.IMAGE_NAME }}:${{ github.sha }}"
 
             docker compose -f docker-compose.prod.yml pull
