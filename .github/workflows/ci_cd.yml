@@ -2,59 +2,14 @@ name: CI/CD
 
 on:
   push:
-    branches: ["develop"]
+    branches: ["main", "master"]
+  pull_request:
+    branches: ["main", "master"]
   workflow_dispatch:
-
-permissions:
-  contents: read
-  packages: write
 
 jobs:
   test:
     runs-on: ubuntu-latest
-
-    services:
-      postgres:
-        image: postgres:16-alpine
-        env:
-          POSTGRES_DB: habits_db
-          POSTGRES_USER: habits_user
-          POSTGRES_PASSWORD: strong_password
-        ports:
-          - 5432:5432
-        options: >-
-          --health-cmd="pg_isready -U habits_user -d habits_db"
-          --health-interval=10s
-          --health-timeout=5s
-          --health-retries=5
-
-      redis:
-        image: redis:7-alpine
-        ports:
-          - 6379:6379
-        options: >-
-          --health-cmd="redis-cli ping"
-          --health-interval=10s
-          --health-timeout=5s
-          --health-retries=5
-
-    env:
-      DEBUG: "False"
-      SECRET_KEY: "ci-secret-key"
-      ALLOWED_HOSTS: "localhost,127.0.0.1"
-      CSRF_TRUSTED_ORIGINS: "http://localhost,http://127.0.0.1"
-
-      DB_NAME: "habits_db"
-      DB_USER: "habits_user"
-      DB_PASSWORD: "strong_password"
-      DB_HOST: "127.0.0.1"
-      DB_PORT: "5432"
-
-      CELERY_BROKER_URL: "redis://127.0.0.1:6379/1"
-      CELERY_RESULT_BACKEND: "redis://127.0.0.1:6379/2"
-
-      TELEGRAM_BOT_TOKEN: "123:TEST"
-      TELEGRAM_API_URL: "https://api.telegram.org"
 
     steps:
       - name: Checkout
@@ -71,76 +26,65 @@ jobs:
           pip install -r requirements.txt
 
       - name: Lint (flake8)
-        run: flake8 .
+        run: |
+          flake8 .
 
       - name: Django check
-        run: python manage.py check
+        run: |
+          python manage.py check
 
       - name: Run tests
-        run: pytest -q
+        run: |
+          pytest -q
 
   build_and_push:
     runs-on: ubuntu-latest
-    needs: test
+    needs: [test]
 
-    # Дублируем permissions на уровне job — чтобы точно были права на packages
+    # ВАЖНО: на PR из fork'ов GITHUB_TOKEN не сможет пушить в GHCR.
+    # Поэтому пушим образ только на push в ветку main/master или при ручном запуске.
+    if: github.event_name != 'pull_request'
+
     permissions:
       contents: read
       packages: write
-
-    env:
-      IMAGE_NAME: ghcr.io/${{ github.repository_owner }}/course321
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Set lowercase image name
+        shell: bash
+        run: |
+          OWNER_LC="$(echo "${GITHUB_REPOSITORY_OWNER}" | tr '[:upper:]' '[:lower:]')"
+          REPO_LC="$(echo "${GITHUB_REPOSITORY#*/}" | tr '[:upper:]' '[:lower:]')"
+          echo "IMAGE=ghcr.io/${OWNER_LC}/${REPO_LC}:latest" >> $GITHUB_ENV
+          echo "IMAGE_LATEST=ghcr.io/${OWNER_LC}/${REPO_LC}:latest" >> $GITHUB_ENV
+
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
-      - name: Login to GHCR (GITHUB_TOKEN)
+      - name: Login to GHCR
         uses: docker/login-action@v3
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Build & Push backend image
+      - name: Build and push
         uses: docker/build-push-action@v6
         with:
           context: .
-          file: Dockerfile
+          file: ./Dockerfile
           push: true
-          tags: |
-            ${{ env.IMAGE_NAME }}:latest
+          tags: ${{ env.IMAGE_LATEST }}
 
   deploy:
     runs-on: ubuntu-latest
-    needs: build_and_push
+    needs: [build_and_push]
+    if: github.event_name != 'pull_request'
 
     steps:
-      - name: Deploy via SSH
-        uses: appleboy/ssh-action@v1.2.0
-        env:
-          APP_DIR: ${{ secrets.APP_DIR }}
-          ENV_FILE: ${{ secrets.ENV_FILE }}
-          GHCR_USERNAME: ${{ secrets.GHCR_USERNAME }}
-          GHCR_PAT: ${{ secrets.GHCR_PAT }}
-        with:
-          host: ${{ secrets.SSH_HOST }}
-          username: ${{ secrets.SSH_USER }}
-          key: ${{ secrets.SSH_PRIVATE_KEY }}
-          envs: APP_DIR,ENV_FILE,GHCR_USERNAME,GHCR_PAT
-          script: |
-            set -e
-            mkdir -p "$APP_DIR"
-            cd "$APP_DIR"
-
-            echo "$ENV_FILE" > .env
-
-            docker login ghcr.io -u "$GHCR_USERNAME" -p "$GHCR_PAT"
-
-            docker compose -f docker-compose.prod.yml --env-file .env pull
-            docker compose -f docker-compose.prod.yml --env-file .env up -d --remove-orphans
-
-            docker image prune -f
+      - name: Deploy placeholder
+        run: |
+          echo "Добавь сюда деплой (ssh, kubectl, docker compose, etc.)"
