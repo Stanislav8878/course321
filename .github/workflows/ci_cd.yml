@@ -6,13 +6,16 @@ on:
   pull_request:
     branches: [ "develop" ]
 
+env:
+  IMAGE_NAME: ghcr.io/${{ github.repository_owner }}/course321
+
 jobs:
   test:
     runs-on: ubuntu-latest
 
     services:
       postgres:
-        image: postgres:16-alpine
+        image: postgres:15-alpine
         env:
           POSTGRES_DB: habits_db
           POSTGRES_USER: habits_user
@@ -21,52 +24,94 @@ jobs:
           - 5432:5432
         options: >-
           --health-cmd="pg_isready -U habits_user -d habits_db"
-          --health-interval=10s
+          --health-interval=5s
           --health-timeout=5s
           --health-retries=10
 
-    env:
-      # Django
-      SECRET_KEY: "ci-secret-key"
-      DEBUG: "False"
-      ALLOWED_HOSTS: "localhost,127.0.0.1"
-
-      # DB for Django (pytest)
-      DB_NAME: habits_db
-      DB_USER: habits_user
-      DB_PASSWORD: strong_password
-      DB_HOST: 127.0.0.1
-      DB_PORT: 5432
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
 
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      - name: Set up Python
-        uses: actions/setup-python@v5
+      - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
 
-      - name: Install dependencies
+      - name: Install deps
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
+          pip install flake8 pytest pytest-django
 
-      - name: Run tests
-        run: |
-          pytest -q
+      - name: Lint
+        run: flake8 .
 
-  # Если деплой тебе реально нужен — оставь блок ниже.
-  # Если пока мешает — можно временно убрать job deploy.
-  deploy:
-    needs: test
+      - name: Django check
+        env:
+          SECRET_KEY: test
+          DEBUG: "0"
+          DB_NAME: habits_db
+          DB_USER: habits_user
+          DB_PASSWORD: strong_password
+          DB_HOST: 127.0.0.1
+          DB_PORT: "5432"
+          REDIS_URL: redis://127.0.0.1:6379/0
+          CELERY_BROKER_URL: redis://127.0.0.1:6379/1
+          CELERY_RESULT_BACKEND: redis://127.0.0.1:6379/2
+        run: python manage.py check
+
+      - name: Pytest
+        env:
+          SECRET_KEY: test
+          DEBUG: "0"
+          DB_NAME: habits_db
+          DB_USER: habits_user
+          DB_PASSWORD: strong_password
+          DB_HOST: 127.0.0.1
+          DB_PORT: "5432"
+          REDIS_URL: redis://127.0.0.1:6379/0
+          CELERY_BROKER_URL: redis://127.0.0.1:6379/1
+          CELERY_RESULT_BACKEND: redis://127.0.0.1:6379/2
+        run: pytest -q
+
+  build_and_push:
     runs-on: ubuntu-latest
+    needs: test
+    if: github.ref == 'refs/heads/develop'
+
+    permissions:
+      packages: write
+      contents: read
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: docker/setup-buildx-action@v3
+
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ secrets.GHCR_USERNAME }}
+          password: ${{ secrets.GHCR_PAT }}
+
+      - name: Build & Push backend image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          tags: |
+            ${{ env.IMAGE_NAME }}:latest
+            ${{ env.IMAGE_NAME }}:${{ github.sha }}
+
+  deploy:
+    runs-on: ubuntu-latest
+    needs: build_and_push
     if: github.ref == 'refs/heads/develop'
 
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
       - name: Deploy via SSH
         uses: appleboy/ssh-action@v1.2.0
         with:
@@ -75,15 +120,23 @@ jobs:
           key: ${{ secrets.SSH_PRIVATE_KEY }}
           script: |
             set -e
-            mkdir -p /opt/habit-tracker
-            cd /opt/habit-tracker
 
-            # тут должен быть проект на сервере (git clone/pull) — добавь под себя
-            # например:
-            # if [ ! -d ".git" ]; then
-            #   git clone <HTTPS_OR_SSH_URL> .
-            # else
-            #   git pull origin develop
-            # fi
+            APP_DIR="${{ secrets.APP_DIR }}"
+            mkdir -p "$APP_DIR"
+            cd "$APP_DIR"
 
-            docker compose -f docker-compose.prod.yml --env-file .env up -d --build
+            if [ ! -d ".git" ]; then
+              git clone https://github.com/${{ github.repository }}.git .
+            else
+              git pull
+            fi
+
+            echo "${{ secrets.ENV_FILE }}" > .env
+
+            echo "${{ secrets.GHCR_PAT }}" | docker login ghcr.io -u "${{ secrets.GHCR_USERNAME }}" --password-stdin
+
+            # подтянуть образы и поднять
+            docker compose -f docker-compose.prod.yml --env-file .env pull
+            docker compose -f docker-compose.prod.yml --env-file .env up -d --remove-orphans
+
+            docker image prune -f

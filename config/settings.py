@@ -1,20 +1,13 @@
 import os
 from pathlib import Path
+from datetime import timedelta
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 
-# ======================
-# Core
-# ======================
-SECRET_KEY = os.getenv("SECRET_KEY", "insecure-test-secret-key")
-DEBUG = os.getenv("DEBUG", "False").lower() in ("1", "true", "yes", "on")
+SECRET_KEY = os.getenv("SECRET_KEY", "dev-secret-key")
+DEBUG = os.getenv("DEBUG", "0") == "1"
+ALLOWED_HOSTS = os.getenv("ALLOWED_HOSTS", "localhost,127.0.0.1").split(",")
 
-ALLOWED_HOSTS_RAW = os.getenv("ALLOWED_HOSTS", "localhost,127.0.0.1")
-ALLOWED_HOSTS = [h.strip() for h in ALLOWED_HOSTS_RAW.split(",") if h.strip()]
-
-# ======================
-# Applications
-# ======================
 INSTALLED_APPS = [
     "django.contrib.admin",
     "django.contrib.auth",
@@ -23,11 +16,9 @@ INSTALLED_APPS = [
     "django.contrib.messages",
     "django.contrib.staticfiles",
 
-    # third-party
     "rest_framework",
-    "drf_spectacular",
+    "rest_framework_simplejwt",
 
-    # local apps
     "users",
     "habits",
     "telegram_bot",
@@ -52,28 +43,24 @@ TEMPLATES = [
         "APP_DIRS": True,
         "OPTIONS": {
             "context_processors": [
+                "django.template.context_processors.debug",
                 "django.template.context_processors.request",
                 "django.contrib.auth.context_processors.auth",
-                "django.template.context_processors.debug",
-                "django.template.context_processors.i18n",
-                "django.template.context_processors.media",
-                "django.template.context_processors.static",
-                "django.template.context_processors.tz",
                 "django.contrib.messages.context_processors.messages",
             ],
         },
-    }
+    },
 ]
 
 WSGI_APPLICATION = "config.wsgi.application"
 
-# ======================
+# =========================
 # Database (PostgreSQL)
-# ======================
+# =========================
 DB_NAME = os.getenv("DB_NAME", "habits_db")
 DB_USER = os.getenv("DB_USER", "habits_user")
 DB_PASSWORD = os.getenv("DB_PASSWORD", "strong_password")
-DB_HOST = os.getenv("DB_HOST", "db")          # для docker-compose по умолчанию
+DB_HOST = os.getenv("DB_HOST", "localhost")
 DB_PORT = os.getenv("DB_PORT", "5432")
 
 DATABASES = {
@@ -84,14 +71,8 @@ DATABASES = {
         "PASSWORD": DB_PASSWORD,
         "HOST": DB_HOST,
         "PORT": DB_PORT,
-        "CONN_MAX_AGE": 60,
     }
 }
-
-# ======================
-# Auth
-# ======================
-AUTH_USER_MODEL = "users.User"
 
 AUTH_PASSWORD_VALIDATORS = [
     {"NAME": "django.contrib.auth.password_validation.UserAttributeSimilarityValidator"},
@@ -100,25 +81,20 @@ AUTH_PASSWORD_VALIDATORS = [
     {"NAME": "django.contrib.auth.password_validation.NumericPasswordValidator"},
 ]
 
-# ======================
-# i18n / time
-# ======================
 LANGUAGE_CODE = "ru-ru"
-TIME_ZONE = "UTC"
+TIME_ZONE = os.getenv("TIME_ZONE", "UTC")
 USE_I18N = True
 USE_TZ = True
 
-# ======================
-# Static
-# ======================
 STATIC_URL = "static/"
 STATIC_ROOT = BASE_DIR / "static"
 
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
+AUTH_USER_MODEL = "users.User"
 
-# ======================
-# DRF / Spectacular
-# ======================
+# =========================
+# DRF + JWT + Pagination
+# =========================
 REST_FRAMEWORK = {
     "DEFAULT_AUTHENTICATION_CLASSES": (
         "rest_framework_simplejwt.authentication.JWTAuthentication",
@@ -126,12 +102,24 @@ REST_FRAMEWORK = {
     "DEFAULT_PERMISSION_CLASSES": (
         "rest_framework.permissions.IsAuthenticated",
     ),
-    "DEFAULT_PAGINATION_CLASS": "habits.pagination.FivePerPagePagination",
+    "DEFAULT_PAGINATION_CLASS": "habits.pagination.HabitPagination",
     "PAGE_SIZE": 5,
 }
 
-SPECTACULAR_SETTINGS = {
-    "TITLE": "Habits API",
-    "DESCRIPTION": "Habits tracker",
-    "VERSION": "1.0.0",
+SIMPLE_JWT = {
+    "ACCESS_TOKEN_LIFETIME": timedelta(minutes=60),
+    "REFRESH_TOKEN_LIFETIME": timedelta(days=1),
 }
+
+# =========================
+# Redis / Celery
+# =========================
+REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6379/0")
+CELERY_BROKER_URL = os.getenv("CELERY_BROKER_URL", "redis://localhost:6379/1")
+CELERY_RESULT_BACKEND = os.getenv("CELERY_RESULT_BACKEND", "redis://localhost:6379/2")
+
+# =========================
+# Telegram
+# =========================
+TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "")
+TELEGRAM_API_URL = os.getenv("TELEGRAM_API_URL", "https://api.telegram.org")

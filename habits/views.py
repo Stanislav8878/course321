@@ -1,31 +1,31 @@
-from rest_framework import viewsets, generics, permissions
+from rest_framework import generics, viewsets
+from rest_framework.permissions import IsAuthenticated
+from rest_framework_simplejwt.authentication import JWTAuthentication
 
-from .models import Habit
-from .serializers import HabitSerializer
-from .permissions import IsOwnerOrReadOnlyForPublic
-from .pagination import FivePerPagePagination
+from habits.models import Habit
+from habits.permissions import IsOwner
+from habits.serializers import HabitSerializer
 
 
 class HabitViewSet(viewsets.ModelViewSet):
     """
-    CRUD привычек текущего пользователя с пагинацией.
+    CRUD привычек текущего пользователя.
+    Важно: пагинация должна работать через REST_FRAMEWORK в settings.py.
     """
     serializer_class = HabitSerializer
-    permission_classes = [permissions.IsAuthenticated, IsOwnerOrReadOnlyForPublic]
-    pagination_class = FivePerPagePagination
+    authentication_classes = (JWTAuthentication,)
+    permission_classes = (IsAuthenticated, IsOwner)
 
     def get_queryset(self):
-        # Только свои привычки
-        return Habit.objects.filter(user=self.request.user).order_by("-created_at")
+        return Habit.objects.filter(user=self.request.user).order_by("-id")
+
+    def perform_create(self, serializer):
+        serializer.save(user=self.request.user)
 
 
 class PublicHabitsListView(generics.ListAPIView):
     """
-    Список публичных привычек (только чтение) с пагинацией.
+    Список публичных привычек.
     """
     serializer_class = HabitSerializer
-    permission_classes = [permissions.AllowAny]
-    pagination_class = FivePerPagePagination
-
-    def get_queryset(self):
-        return Habit.objects.filter(is_public=True).order_by("-created_at")
+    queryset = Habit.objects.filter(is_public=True).order_by("-id")
