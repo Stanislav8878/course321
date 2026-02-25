@@ -15,4 +15,3 @@ class CustomUserAdmin(UserAdmin):
         ),
     )
     list_display = ("username", "email", "telegram_chat_id", "is_staff", "is_active")
-

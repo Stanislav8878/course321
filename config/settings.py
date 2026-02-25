@@ -1,5 +1,6 @@
-from pathlib import Path
 import os
+from pathlib import Path
+from celery.schedules import crontab
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 
@@ -135,7 +136,6 @@ CELERY_TIMEZONE = TIME_ZONE
 CELERY_ENABLE_UTC = True
 
 # --- Celery Beat ---
-from celery.schedules import crontab
 
 CELERY_BEAT_SCHEDULE = {
     "send-habit-reminders-every-minute": {

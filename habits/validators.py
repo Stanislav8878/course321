@@ -33,6 +33,7 @@ def validate_habit_payload(attrs):
         if reward:
             raise serializers.ValidationError({"reward": "У приятной привычки не может быть вознаграждения."})
         if related_habit:
-            raise serializers.ValidationError({"related_habit": "У приятной привычки не может быть связанной привычки."})
-
+            raise serializers.ValidationError({
+                "related_habit": "У приятной привычки не может быть связанной привычки."
+            })
     return attrs
