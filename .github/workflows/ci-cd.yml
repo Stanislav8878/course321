@@ -92,10 +92,7 @@ jobs:
     if: github.event_name == 'push'
 
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Deploy via SSH (docker compose)
+      - name: Deploy via SSH
         uses: appleboy/ssh-action@v1.2.0
         with:
           host: ${{ secrets.SSH_HOST }}
@@ -105,30 +102,34 @@ jobs:
           script: |
             set -euo pipefail
 
-            # Если SSH_PORT не задан в secrets (пусто) — используем 22.
-            # appleboy/ssh-action сам по себе обычно дефолтит 22, но сделаем явно:
-            if [ -z "${SSH_PORT:-}" ]; then export SSH_PORT=22; fi
+            APP_DIR="${{ secrets.SSH_PATH }}"
+            if [ -z "${APP_DIR:-}" ]; then APP_DIR="$HOME/course321"; fi
 
-            APP_DIR="$HOME/course321"
+            echo "Deploy to $APP_DIR"
 
-            # Забираем/обновляем код
+            # если папки нет — клонируем
             if [ ! -d "$APP_DIR/.git" ]; then
+              rm -rf "$APP_DIR"
               git clone "${{ github.server_url }}/${{ github.repository }}.git" "$APP_DIR"
             fi
 
             cd "$APP_DIR"
-            git fetch --all
-            git checkout develop
-            git pull origin develop
 
-            # Пишем .env из GitHub Secret (многострочный)
+            # ЖЁСТКО синхронизируемся с репозиторием (фикс твоей ошибки)
+            git fetch --all --prune
+            git checkout develop || git checkout -b develop
+            git reset --hard origin/develop
+            git clean -fd
+
+            # записываем .env
             printf '%s' "${{ secrets.ENV_FILE }}" > .env
 
-            # Пересобираем/перезапускаем прод-стек
+            # деплой
             docker compose -f docker-compose.prod.yml up -d --build
 
-            # Миграции + статика (без TTY)
+            # миграции + статика
             docker compose -f docker-compose.prod.yml exec -T web python manage.py migrate --noinput
             docker compose -f docker-compose.prod.yml exec -T web python manage.py collectstatic --noinput
 
+            # очистка
             docker image prune -f
