@@ -1,109 +1,30 @@
-# ===============================
-# Python
-# ===============================
-__pycache__/
-*.py[cod]
-*$py.class
-*.pyo
-*.pyd
-
-# ===============================
-# Virtual environments
-# ===============================
-venv/
-env/
-.venv/
-.virtualenv/
-ENV/
-
-# ===============================
-# Django
-# ===============================
-*.log
-local_settings.py
-db.sqlite3
-media/
-staticfiles/
-static/
-
-# Django migrations (НЕ игнорируем код, только pyc)
-**/migrations/*.pyc
-**/migrations/__pycache__/
-
-# ===============================
-# Environment variables
-# ===============================
+# env
 .env
 .env.*
 !.env.example
 
-# ===============================
-# Celery
-# ===============================
-celerybeat-schedule
-celerybeat.pid
-
-# ===============================
-# Redis
-# ===============================
-dump.rdb
-
-# ===============================
-# Coverage / tests
-# ===============================
-.coverage
-.coverage.*
-htmlcov/
-.pytest_cache/
-nosetests.xml
-coverage.xml
-
-# ===============================
-# IDEs / Editors
-# ===============================
-.idea/
-.vscode/
-*.swp
-*.swo
-*.swn
-
-# PyCharm
-*.iml
-
-# ===============================
-# OS
-# ===============================
-.DS_Store
-Thumbs.db
-
-# ===============================
-# Build / packaging
-# ===============================
-build/
-dist/
-*.egg-info/
-.eggs/
-
-# ===============================
-# Logs
-# ===============================
+# python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.sqlite3
 *.log
 
-# ===============================
-# Docker (если будешь добавлять)
-# ===============================
-docker-compose.override.yml
+# venv/ide
+.venv/
+venv/
+.idea/
+.vscode/
 
-# ===============================
-# Node / frontend (если SPA рядом)
-# ===============================
-node_modules/
-npm-debug.log*
-yarn-debug.log*
-yarn-error.log*
+# tests/coverage
+.coverage
+htmlcov/
+.coverage.*
+.pytest_cache/
 
-# ===============================
-# Other
-# ===============================
-*.bak
-*.tmp
+# django collected
+static/
+media/
+celerybeat-schedule
+gunicorn.ctl
